@@ -17,6 +17,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     const railwayBackend = 'https://vieodownloader-production.up.railway.app/download';
     
     let railwayError: Error | null = null;
+    let backendAvailable = false;
     
     try {
       console.log('Calling Railway backend:', railwayBackend);
@@ -36,7 +37,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Railway backend error:', response.status, errorText);
-        throw new Error(`Backend service unavailable (${response.status})`);
+        throw new Error(`Backend service returned error (${response.status})`);
       }
 
       const data = await response.json();
@@ -44,6 +45,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       
       // Check if we got valid data
       if (data && (data.title || data.info)) {
+        backendAvailable = true;
         return transformRailwayResponse(data, url);
       } else {
         throw new Error('Invalid response format from backend');
@@ -56,7 +58,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       // Check if it's a network error (CORS, connection refused, etc.)
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         console.warn('Network error detected - likely CORS or backend unavailable');
-        railwayError = new Error('Backend service is currently unavailable. This could be due to the service being down or network connectivity issues.');
+        railwayError = new Error('Backend service is currently unavailable');
       }
     }
 
@@ -96,6 +98,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
         if (response && response.ok) {
           const data = await response.json();
           console.log('Fallback backend response:', data);
+          backendAvailable = true;
           return transformBackendResponse(data, url, backend.type);
         }
         
@@ -117,7 +120,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
           ...demoInfo.apiData,
           backendError: railwayError?.message || 'Backend services unavailable',
           demoMode: true,
-          errorDetails: 'The video download service is currently unavailable. This may be due to server maintenance or connectivity issues.'
+          errorDetails: 'The video download service is currently unavailable. You can view video information, but downloads are not available at this time.'
         };
         return demoInfo;
       } catch (demoError) {
@@ -130,7 +133,19 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     
   } catch (error) {
     console.error('Video analysis failed:', error);
-    throw error;
+    
+    // If it's a validation error, throw it directly
+    if (error instanceof Error && (error.message.includes('Invalid URL') || error.message.includes('Platform not supported'))) {
+      throw error;
+    }
+    
+    // For other errors, try to provide a fallback
+    try {
+      return createFallbackVideoInfo(url, error instanceof Error ? error.message : 'Unknown error occurred');
+    } catch (fallbackError) {
+      // If even fallback fails, throw the original error
+      throw error;
+    }
   }
 };
 
@@ -149,7 +164,7 @@ const createFallbackVideoInfo = (url: string, errorMessage: string): VideoInfo =
       originalUrl: url,
       demoMode: true,
       backendError: errorMessage,
-      errorDetails: 'Unable to connect to video analysis services. Please check your internet connection and try again later.'
+      errorDetails: 'The video download service is temporarily unavailable. You can view video information, but downloads are not available right now.'
     }
   };
 };

@@ -41,12 +41,12 @@ function App() {
       
       // Provide more helpful error messages for common issues
       let userFriendlyError = errorMessage;
-      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Backend service unavailable')) {
-        userFriendlyError = 'Unable to connect to video analysis service. This may be due to:\n\n• The backend service being temporarily unavailable\n• Network connectivity issues\n• CORS configuration problems\n\nPlease try again in a few moments, or check if the service is running properly.';
-      } else if (errorMessage.includes('Invalid URL')) {
+      if (errorMessage.includes('Invalid URL')) {
         userFriendlyError = 'Please enter a valid video URL from a supported platform (YouTube, Instagram, TikTok, etc.)';
       } else if (errorMessage.includes('Platform not supported')) {
         userFriendlyError = 'This platform is not currently supported. We support YouTube, Instagram, TikTok, Twitter, Facebook, Vimeo, and more.';
+      } else if (errorMessage.includes('Backend service') || errorMessage.includes('Failed to fetch')) {
+        userFriendlyError = 'The video download service is temporarily unavailable. This may be due to:\n\n• Server maintenance or updates\n• Network connectivity issues\n• High server load\n\nPlease try again in a few moments.';
       }
       
       setError(userFriendlyError);
@@ -58,7 +58,7 @@ function App() {
     // Check if this is demo mode
     if (format.demoMode || !format.downloadUrl) {
       const demoMessage = videoInfo?.apiData?.errorDetails || 
-        'Demo Mode: This is a demonstration. To enable actual downloads, ensure the backend video download service is running and accessible. Currently showing video information only.';
+        'Demo Mode: The video download service is currently unavailable. You can view video information, but downloads are not available at this time. Please try again later when the service is restored.';
       setError(demoMessage);
       setAppState('error');
       return;
