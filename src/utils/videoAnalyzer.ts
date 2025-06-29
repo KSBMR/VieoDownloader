@@ -13,87 +13,190 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   try {
     console.log('Analyzing video URL:', url);
     
-    // Try working backend services
-    const backendEndpoints = [
-      {
-        url: 'https://api.cobalt.tools/api/json',
-        type: 'cobalt'
-      },
-      {
-        url: 'https://vieodownloader-production.up.railway.app/download',
-        type: 'standard'
-      },
-      // Add your own backend URL here:
-      // {
-      //   url: 'YOUR_BACKEND_URL/download',
-      //   type: 'standard'
-      // }
-    ];
+    // Primary backend - your Railway service
+    const railwayBackend = 'https://vieodownloader-production.up.railway.app/download';
+    
+    try {
+      console.log('Calling Railway backend:', railwayBackend);
+      
+      const response = await fetch(railwayBackend, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ url: url }),
+        signal: AbortSignal.timeout(30000) // 30 second timeout for video processing
+      });
 
-    for (const backend of backendEndpoints) {
-      try {
-        console.log(`Trying backend: ${backend.url}`);
-        
-        let response;
-        if (backend.type === 'cobalt') {
-          response = await fetch(backend.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({ 
-              url: url,
-              vCodec: 'h264',
-              vQuality: '720',
-              aFormat: 'mp3',
-              filenamePattern: 'classic',
-              isAudioOnly: false
-            }),
-            signal: AbortSignal.timeout(15000)
-          });
-        } else {
-          response = await fetch(backend.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({ url }),
-            signal: AbortSignal.timeout(15000)
-          });
+      console.log('Railway response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Railway backend error:', response.status, errorText);
+        throw new Error(`Backend returned ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('Railway backend response:', data);
+      
+      // Check if we got valid data
+      if (data && (data.title || data.info)) {
+        return transformRailwayResponse(data, url);
+      } else {
+        throw new Error('Invalid response format from backend');
+      }
+      
+    } catch (railwayError) {
+      console.error('Railway backend failed:', railwayError);
+      
+      // Try alternative backends as fallback
+      const fallbackEndpoints = [
+        {
+          url: 'https://api.cobalt.tools/api/json',
+          type: 'cobalt'
         }
+      ];
 
-        if (!response.ok) {
-          console.warn(`Backend ${backend.url} returned ${response.status}`);
+      for (const backend of fallbackEndpoints) {
+        try {
+          console.log(`Trying fallback backend: ${backend.url}`);
+          
+          let response;
+          if (backend.type === 'cobalt') {
+            response = await fetch(backend.url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: JSON.stringify({ 
+                url: url,
+                vCodec: 'h264',
+                vQuality: '720',
+                aFormat: 'mp3',
+                filenamePattern: 'classic',
+                isAudioOnly: false
+              }),
+              signal: AbortSignal.timeout(15000)
+            });
+          }
+
+          if (response && response.ok) {
+            const data = await response.json();
+            console.log('Fallback backend response:', data);
+            return transformBackendResponse(data, url, backend.type);
+          }
+          
+        } catch (fallbackError) {
+          console.warn(`Fallback backend ${backend.url} failed:`, fallbackError);
           continue;
         }
-
-        const data = await response.json();
-        console.log('Backend response:', data);
-        
-        // Check if we got valid download data
-        if (data && (data.url || data.formats || data.title)) {
-          return transformBackendResponse(data, url, backend.type);
-        }
-        
-      } catch (backendError) {
-        console.warn(`Backend ${backend.url} failed:`, backendError);
-        continue;
       }
-    }
 
-    // If all backends fail, extract basic info but show demo mode
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      return await extractYouTubeInfo(url);
+      // If all backends fail, show demo mode with actual video info if possible
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        return await extractYouTubeInfo(url);
+      }
+      
+      throw new Error(`Cannot connect to video analysis service: ${railwayError instanceof Error ? railwayError.message : 'Unknown error'}`);
     }
-    
-    throw new Error('Unable to connect to video download services. Please try again later.');
     
   } catch (error) {
     console.error('Video analysis failed:', error);
     throw error;
   }
+};
+
+const transformRailwayResponse = (data: any, originalUrl: string): VideoInfo => {
+  console.log('Transforming Railway response:', data);
+  
+  const formats: VideoFormat[] = [];
+  
+  // Handle different possible response formats from your Railway backend
+  let videoInfo = data.info || data;
+  let videoFormats = data.formats || videoInfo.formats || [];
+  
+  // If formats is not an array, try to extract from different structures
+  if (!Array.isArray(videoFormats)) {
+    if (data.download_url || data.url) {
+      // Single download URL format
+      formats.push({
+        quality: 'Best Available',
+        resolution: 'Original',
+        size: 'Unknown',
+        format: 'MP4',
+        type: 'video',
+        downloadUrl: data.download_url || data.url,
+        formatId: 'railway-video'
+      });
+    } else if (data.video_url) {
+      formats.push({
+        quality: 'Video',
+        resolution: 'Original',
+        size: 'Unknown',
+        format: 'MP4',
+        type: 'video',
+        downloadUrl: data.video_url,
+        formatId: 'railway-video'
+      });
+    }
+    
+    if (data.audio_url) {
+      formats.push({
+        quality: 'Audio',
+        resolution: 'Audio Only',
+        size: 'Unknown',
+        format: 'MP3',
+        type: 'audio',
+        downloadUrl: data.audio_url,
+        formatId: 'railway-audio'
+      });
+    }
+  } else {
+    // Handle array of formats
+    videoFormats.forEach((format: any, index: number) => {
+      if (format.url || format.download_url) {
+        formats.push({
+          quality: format.quality || format.format_note || (format.height ? format.height + 'p' : 'Unknown'),
+          resolution: format.resolution || (format.width && format.height ? `${format.width}x${format.height}` : 'Unknown'),
+          size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
+          format: (format.ext || format.format || 'mp4').toUpperCase(),
+          type: format.vcodec && format.vcodec !== 'none' ? 'video' : 'audio',
+          downloadUrl: format.url || format.download_url,
+          formatId: format.format_id || `railway-${index}`
+        });
+      }
+    });
+  }
+
+  // If no formats found, create demo formats but with actual video info
+  if (formats.length === 0) {
+    console.warn('No download formats found in Railway response, creating demo formats');
+    const videoId = extractYouTubeVideoId(originalUrl);
+    formats.push(...generateDemoFormats(videoId || 'unknown', originalUrl));
+  }
+
+  return {
+    title: videoInfo.title || data.title || extractTitleFromUrl(originalUrl),
+    thumbnail: videoInfo.thumbnail || data.thumbnail || getYouTubeThumbnail(originalUrl),
+    duration: formatDuration(videoInfo.duration || data.duration),
+    platform: getPlatformName(originalUrl),
+    formats: formats,
+    apiData: {
+      source: 'railway',
+      originalData: data,
+      hasRealDownloads: formats.some(f => f.downloadUrl && !f.demoMode)
+    }
+  };
+};
+
+const getYouTubeThumbnail = (url: string): string => {
+  const videoId = extractYouTubeVideoId(url);
+  if (videoId) {
+    return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+  }
+  return getDefaultThumbnail();
 };
 
 const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
