@@ -1,6 +1,5 @@
 import { VideoInfo, VideoFormat } from '../types';
 
-// Mock implementation to avoid external API dependency
 export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   // Basic URL validation
   if (!isValidUrl(url)) {
@@ -11,93 +10,93 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     throw new Error('Platform not supported. We support YouTube, Instagram, TikTok, Twitter, and more.');
   }
 
-  // Simulate API delay
-  await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
+  try {
+    console.log('Sending request to backend:', url);
+    
+    // Call your actual backend API
+    const response = await fetch('https://vieodownloader-production.up.railway.app/download', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url }),
+    });
 
-  // Generate mock video data based on platform
-  const platform = getPlatformName(url);
-  const mockData = generateMockVideoData(url, platform);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Backend error: ${response.status} - ${errorText}`);
+    }
 
-  return mockData;
+    const data = await response.json();
+    console.log('Backend response:', data);
+
+    // Transform backend response to our VideoInfo format
+    return transformBackendResponse(data, url);
+    
+  } catch (error) {
+    console.error('API call failed:', error);
+    
+    // If backend fails, show helpful error message
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Cannot connect to video analysis service. Please check your internet connection.');
+    }
+    
+    throw error;
+  }
 };
 
-const generateMockVideoData = (url: string, platform: string): VideoInfo => {
-  const videoTitles = [
-    "Amazing Nature Documentary - Wildlife in 4K",
-    "How to Build a Modern Web Application",
-    "Top 10 Travel Destinations 2024",
-    "Cooking Masterclass: Italian Cuisine",
-    "Tech Review: Latest Smartphone Features",
-    "Fitness Workout: 30-Minute Full Body",
-    "Music Video: Indie Rock Compilation",
-    "Tutorial: Advanced Photography Tips"
-  ];
+const transformBackendResponse = (backendData: any, originalUrl: string): VideoInfo => {
+  // Transform your backend response format to match our VideoInfo interface
+  // Adjust this based on your actual backend response structure
+  
+  const formats: VideoFormat[] = [];
+  
+  // Handle video formats
+  if (backendData.formats) {
+    backendData.formats.forEach((format: any) => {
+      formats.push({
+        quality: format.quality || format.height + 'p' || 'Unknown',
+        resolution: format.resolution || `${format.width}x${format.height}` || 'Unknown',
+        size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
+        format: format.ext?.toUpperCase() || 'MP4',
+        type: format.vcodec && format.vcodec !== 'none' ? 'video' : 'audio',
+        downloadUrl: format.url,
+        formatId: format.format_id
+      });
+    });
+  }
 
-  const randomTitle = videoTitles[Math.floor(Math.random() * videoTitles.length)];
-  const duration = Math.floor(Math.random() * 1800) + 120; // 2-32 minutes
-
-  const formats: VideoFormat[] = [
-    {
-      quality: '1080p',
-      resolution: '1920x1080',
-      size: `${(Math.random() * 500 + 100).toFixed(1)} MB`,
-      format: 'MP4',
-      type: 'video',
-      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4',
-      formatId: '1080p-mp4'
-    },
-    {
-      quality: '720p',
-      resolution: '1280x720',
-      size: `${(Math.random() * 300 + 50).toFixed(1)} MB`,
-      format: 'MP4',
-      type: 'video',
-      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_640x360_1mb.mp4',
-      formatId: '720p-mp4'
-    },
-    {
-      quality: '480p',
-      resolution: '854x480',
-      size: `${(Math.random() * 150 + 25).toFixed(1)} MB`,
-      format: 'MP4',
-      type: 'video',
-      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_360x240_1mb.mp4',
-      formatId: '480p-mp4'
-    },
-    {
-      quality: 'High',
-      resolution: 'Audio Only',
-      size: `${(Math.random() * 50 + 5).toFixed(1)} MB`,
-      format: 'MP3',
-      type: 'audio',
-      downloadUrl: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav',
-      formatId: 'audio-mp3'
-    }
-  ];
+  // Handle audio-only formats
+  if (backendData.audio_formats) {
+    backendData.audio_formats.forEach((format: any) => {
+      formats.push({
+        quality: format.abr ? `${format.abr}kbps` : 'Audio',
+        resolution: 'Audio Only',
+        size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
+        format: format.ext?.toUpperCase() || 'MP3',
+        type: 'audio',
+        downloadUrl: format.url,
+        formatId: format.format_id
+      });
+    });
+  }
 
   return {
-    title: randomTitle,
-    thumbnail: getMockThumbnail(),
-    duration: formatDuration(duration),
-    platform: platform,
+    title: backendData.title || 'Unknown Title',
+    thumbnail: backendData.thumbnail || getDefaultThumbnail(),
+    duration: formatDuration(backendData.duration),
+    platform: getPlatformName(originalUrl),
     formats: formats,
-    apiData: {
-      mock: true,
-      originalUrl: url,
-      generatedAt: new Date().toISOString()
-    }
+    apiData: backendData
   };
 };
 
-const getMockThumbnail = (): string => {
-  const thumbnails = [
-    'https://images.pexels.com/photos/1144275/pexels-photo-1144275.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'https://images.pexels.com/photos/1092644/pexels-photo-1092644.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'https://images.pexels.com/photos/1308624/pexels-photo-1308624.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'https://images.pexels.com/photos/1261728/pexels-photo-1261728.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1'
-  ];
+const formatFileSize = (bytes: number): string => {
+  if (!bytes) return 'Unknown';
   
-  return thumbnails[Math.floor(Math.random() * thumbnails.length)];
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
 };
 
 const formatDuration = (seconds: number | string): string => {
@@ -115,6 +114,10 @@ const formatDuration = (seconds: number | string): string => {
   }
   
   return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+
+const getDefaultThumbnail = (): string => {
+  return 'https://images.pexels.com/photos/1144275/pexels-photo-1144275.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1';
 };
 
 const isValidUrl = (url: string): boolean => {

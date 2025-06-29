@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, Download, RotateCcw, Info } from 'lucide-react';
+import { CheckCircle, Download, RotateCcw } from 'lucide-react';
 
 interface CompletedDownloadProps {
   onNewDownload: () => void;
@@ -14,21 +14,12 @@ const CompletedDownload: React.FC<CompletedDownloadProps> = ({ onNewDownload }) 
         </div>
         
         <h3 className="text-2xl font-bold text-gray-800 mb-2">
-          Download Simulation Complete!
+          Download Started!
         </h3>
         
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <div className="flex items-start space-x-3">
-            <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-            <div className="text-left">
-              <p className="text-blue-800 font-medium text-sm">Demo Mode</p>
-              <p className="text-blue-700 text-sm">
-                This is a demonstration. In a real application, your file would be downloaded to your device. 
-                To make this functional, connect it to a real video download backend service.
-              </p>
-            </div>
-          </div>
-        </div>
+        <p className="text-green-600 mb-6">
+          Your file download has been initiated. Check your browser's download folder.
+        </p>
         
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <button
@@ -36,7 +27,7 @@ const CompletedDownload: React.FC<CompletedDownloadProps> = ({ onNewDownload }) 
             className="inline-flex items-center space-x-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-3 rounded-xl font-medium hover:from-blue-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105 active:scale-95"
           >
             <Download className="w-4 h-4" />
-            <span>Try Another Video</span>
+            <span>Download Another</span>
           </button>
           
           <button
