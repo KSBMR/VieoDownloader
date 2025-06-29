@@ -4,8 +4,10 @@ export interface VideoFormat {
   size: string;
   format: string;
   type: 'video' | 'audio';
-  downloadUrl?: string;
+  downloadUrl?: string | null;
   formatId?: string;
+  demoMode?: boolean;
+  originalUrl?: string;
 }
 
 export interface VideoInfo {

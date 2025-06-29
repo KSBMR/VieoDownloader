@@ -38,8 +38,9 @@ function App() {
   };
 
   const handleDownload = async (format: VideoFormat) => {
-    if (!format.downloadUrl) {
-      setError('Download URL not available for this format');
+    // Check if this is demo mode
+    if (format.demoMode || !format.downloadUrl) {
+      setError('Demo Mode: This is a demonstration. To enable actual downloads, connect to a working video download backend service. Currently showing video information only.');
       setAppState('error');
       return;
     }
@@ -48,6 +49,11 @@ function App() {
     setDownloadProgress({ percentage: 0, speed: '0 MB/s', eta: 'Preparing...' });
 
     try {
+      // Validate download URL
+      if (!format.downloadUrl || format.downloadUrl.includes('youtube.com/watch')) {
+        throw new Error('Invalid download URL. Backend service may not be working properly.');
+      }
+
       // Create a temporary link to trigger download
       const link = document.createElement('a');
       link.href = format.downloadUrl;
@@ -90,7 +96,8 @@ function App() {
 
     } catch (err) {
       console.error('Download failed:', err);
-      setError('Download failed. Please try again or choose a different format.');
+      const errorMessage = err instanceof Error ? err.message : 'Download failed. Please try again or choose a different format.';
+      setError(errorMessage);
       setAppState('error');
       setDownloadProgress(null);
     }
@@ -134,6 +141,7 @@ function App() {
                 onDownload={handleDownload}
                 downloadProgress={downloadProgress}
                 isDownloading={appState === 'downloading'}
+                isDemoMode={videoInfo.apiData?.demoMode || false}
               />
             </>
           )}

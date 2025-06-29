@@ -13,21 +13,25 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   try {
     console.log('Analyzing video URL:', url);
     
-    // Try multiple backend endpoints for better reliability
+    // Try working backend services
     const backendEndpoints = [
-      'https://vieodownloader-production.up.railway.app/download',
-      'https://api.cobalt.tools/api/json',
-      'https://youtube-dl-api.herokuapp.com/api/info'
+      {
+        url: 'https://api.cobalt.tools/api/json',
+        type: 'cobalt'
+      },
+      {
+        url: 'https://vieodownloader-production.up.railway.app/download',
+        type: 'standard'
+      }
     ];
 
-    for (const endpoint of backendEndpoints) {
+    for (const backend of backendEndpoints) {
       try {
-        console.log(`Trying backend: ${endpoint}`);
+        console.log(`Trying backend: ${backend.url}`);
         
         let response;
-        if (endpoint.includes('cobalt.tools')) {
-          // Cobalt API format
-          response = await fetch(endpoint, {
+        if (backend.type === 'cobalt') {
+          response = await fetch(backend.url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -38,13 +42,13 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
               vCodec: 'h264',
               vQuality: '720',
               aFormat: 'mp3',
-              filenamePattern: 'classic'
+              filenamePattern: 'classic',
+              isAudioOnly: false
             }),
             signal: AbortSignal.timeout(15000)
           });
         } else {
-          // Standard format
-          response = await fetch(endpoint, {
+          response = await fetch(backend.url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -56,29 +60,30 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
         }
 
         if (!response.ok) {
-          console.warn(`Backend ${endpoint} returned ${response.status}`);
+          console.warn(`Backend ${backend.url} returned ${response.status}`);
           continue;
         }
 
         const data = await response.json();
         console.log('Backend response:', data);
         
-        if (data && (data.title || data.text)) {
-          return transformBackendResponse(data, url, endpoint);
+        // Check if we got valid download data
+        if (data && (data.url || data.formats || data.title)) {
+          return transformBackendResponse(data, url, backend.type);
         }
         
       } catch (backendError) {
-        console.warn(`Backend ${endpoint} failed:`, backendError);
+        console.warn(`Backend ${backend.url} failed:`, backendError);
         continue;
       }
     }
 
-    // If all backends fail, try to extract basic info from YouTube URL
+    // If all backends fail, extract basic info but show demo mode
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       return await extractYouTubeInfo(url);
     }
     
-    throw new Error('Unable to analyze video. All backend services are currently unavailable.');
+    throw new Error('Unable to connect to video download services. Please try again later.');
     
   } catch (error) {
     console.error('Video analysis failed:', error);
@@ -94,7 +99,7 @@ const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
       throw new Error('Invalid YouTube URL');
     }
 
-    // Try to get basic info using YouTube oEmbed API (no API key required)
+    // Try to get basic info using YouTube oEmbed API
     try {
       const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
       if (oembedResponse.ok) {
@@ -105,12 +110,13 @@ const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
           thumbnail: oembedData.thumbnail_url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
           duration: 'Unknown',
           platform: 'YouTube',
-          formats: generateYouTubeFormats(videoId),
+          formats: generateDemoFormats(videoId, url),
           apiData: {
-            source: 'youtube-oembed',
+            source: 'demo-mode',
             videoId: videoId,
             originalUrl: url,
-            oembedData: oembedData
+            oembedData: oembedData,
+            demoMode: true
           }
         };
       }
@@ -124,11 +130,12 @@ const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
       thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
       duration: 'Unknown',
       platform: 'YouTube',
-      formats: generateYouTubeFormats(videoId),
+      formats: generateDemoFormats(videoId, url),
       apiData: {
-        source: 'youtube-fallback',
+        source: 'demo-mode',
         videoId: videoId,
-        originalUrl: url
+        originalUrl: url,
+        demoMode: true
       }
     };
 
@@ -153,8 +160,8 @@ const extractYouTubeVideoId = (url: string): string | null => {
   return null;
 };
 
-const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
-  // Generate realistic YouTube download formats
+const generateDemoFormats = (videoId: string, originalUrl: string): VideoFormat[] => {
+  // Generate demo formats that will show a message instead of downloading
   return [
     {
       quality: '1080p',
@@ -162,8 +169,10 @@ const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
       size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
-      formatId: 'youtube-1080p'
+      downloadUrl: null, // No download URL available
+      formatId: 'demo-1080p',
+      demoMode: true,
+      originalUrl: originalUrl
     },
     {
       quality: '720p',
@@ -171,8 +180,10 @@ const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
       size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
-      formatId: 'youtube-720p'
+      downloadUrl: null,
+      formatId: 'demo-720p',
+      demoMode: true,
+      originalUrl: originalUrl
     },
     {
       quality: '480p',
@@ -180,8 +191,10 @@ const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
       size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
-      formatId: 'youtube-480p'
+      downloadUrl: null,
+      formatId: 'demo-480p',
+      demoMode: true,
+      originalUrl: originalUrl
     },
     {
       quality: '128kbps',
@@ -189,27 +202,31 @@ const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
       size: 'Unknown',
       format: 'MP3',
       type: 'audio',
-      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
-      formatId: 'youtube-audio'
+      downloadUrl: null,
+      formatId: 'demo-audio',
+      demoMode: true,
+      originalUrl: originalUrl
     }
   ];
 };
 
-const transformBackendResponse = (backendData: any, originalUrl: string, endpoint: string): VideoInfo => {
+const transformBackendResponse = (backendData: any, originalUrl: string, backendType: string): VideoInfo => {
   const formats: VideoFormat[] = [];
   
   // Handle Cobalt API response
-  if (endpoint.includes('cobalt.tools')) {
+  if (backendType === 'cobalt') {
     if (backendData.status === 'success' || backendData.status === 'redirect') {
       formats.push({
         quality: 'Best Available',
         resolution: 'Original',
         size: 'Unknown',
-        format: 'MP4',
+        format: getFormatFromUrl(backendData.url) || 'MP4',
         type: 'video',
         downloadUrl: backendData.url,
         formatId: 'cobalt-video'
       });
+    } else if (backendData.status === 'error') {
+      throw new Error(backendData.text || 'Video processing failed');
     }
     
     return {
@@ -223,33 +240,33 @@ const transformBackendResponse = (backendData: any, originalUrl: string, endpoin
   }
 
   // Handle standard backend response
-  if (backendData.formats) {
+  if (backendData.formats && Array.isArray(backendData.formats)) {
     backendData.formats.forEach((format: any) => {
-      formats.push({
-        quality: format.quality || format.height + 'p' || 'Unknown',
-        resolution: format.resolution || `${format.width}x${format.height}` || 'Unknown',
-        size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
-        format: format.ext?.toUpperCase() || 'MP4',
-        type: format.vcodec && format.vcodec !== 'none' ? 'video' : 'audio',
-        downloadUrl: format.url,
-        formatId: format.format_id
-      });
+      if (format.url) {
+        formats.push({
+          quality: format.quality || (format.height ? format.height + 'p' : 'Unknown'),
+          resolution: format.resolution || (format.width && format.height ? `${format.width}x${format.height}` : 'Unknown'),
+          size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
+          format: format.ext?.toUpperCase() || 'MP4',
+          type: format.vcodec && format.vcodec !== 'none' ? 'video' : 'audio',
+          downloadUrl: format.url,
+          formatId: format.format_id || `format-${formats.length}`
+        });
+      }
     });
   }
 
-  // Handle audio-only formats
-  if (backendData.audio_formats) {
-    backendData.audio_formats.forEach((format: any) => {
-      formats.push({
-        quality: format.abr ? `${format.abr}kbps` : 'Audio',
-        resolution: 'Audio Only',
-        size: format.filesize ? formatFileSize(format.filesize) : 'Unknown',
-        format: format.ext?.toUpperCase() || 'MP3',
-        type: 'audio',
-        downloadUrl: format.url,
-        formatId: format.format_id
-      });
-    });
+  // If no formats found, return demo mode
+  if (formats.length === 0) {
+    const videoId = extractYouTubeVideoId(originalUrl);
+    return {
+      title: backendData.title || extractTitleFromUrl(originalUrl),
+      thumbnail: backendData.thumbnail || getDefaultThumbnail(),
+      duration: formatDuration(backendData.duration),
+      platform: getPlatformName(originalUrl),
+      formats: generateDemoFormats(videoId || 'unknown', originalUrl),
+      apiData: { ...backendData, demoMode: true }
+    };
   }
 
   return {
@@ -260,6 +277,20 @@ const transformBackendResponse = (backendData: any, originalUrl: string, endpoin
     formats: formats,
     apiData: backendData
   };
+};
+
+const getFormatFromUrl = (url: string): string | null => {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname.toLowerCase();
+    if (pathname.includes('.mp4')) return 'MP4';
+    if (pathname.includes('.mp3')) return 'MP3';
+    if (pathname.includes('.webm')) return 'WEBM';
+    if (pathname.includes('.m4a')) return 'M4A';
+    return null;
+  } catch {
+    return null;
+  }
 };
 
 const extractTitleFromUrl = (url: string): string => {
