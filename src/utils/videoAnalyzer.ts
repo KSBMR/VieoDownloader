@@ -16,6 +16,8 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     // Primary backend - your Railway service
     const railwayBackend = 'https://vieodownloader-production.up.railway.app/download';
     
+    let railwayError: Error | null = null;
+    
     try {
       console.log('Calling Railway backend:', railwayBackend);
       
@@ -26,7 +28,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
           'Accept': 'application/json',
         },
         body: JSON.stringify({ url: url }),
-        signal: AbortSignal.timeout(30000) // 30 second timeout for video processing
+        signal: AbortSignal.timeout(15000) // Reduced timeout to 15 seconds
       });
 
       console.log('Railway response status:', response.status);
@@ -34,7 +36,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Railway backend error:', response.status, errorText);
-        throw new Error(`Backend returned ${response.status}: ${errorText}`);
+        throw new Error(`Backend service unavailable (${response.status})`);
       }
 
       const data = await response.json();
@@ -47,65 +49,109 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
         throw new Error('Invalid response format from backend');
       }
       
-    } catch (railwayError) {
+    } catch (error) {
+      railwayError = error instanceof Error ? error : new Error('Railway backend failed');
       console.error('Railway backend failed:', railwayError);
       
-      // Try alternative backends as fallback
-      const fallbackEndpoints = [
-        {
-          url: 'https://api.cobalt.tools/api/json',
-          type: 'cobalt'
-        }
-      ];
-
-      for (const backend of fallbackEndpoints) {
-        try {
-          console.log(`Trying fallback backend: ${backend.url}`);
-          
-          let response;
-          if (backend.type === 'cobalt') {
-            response = await fetch(backend.url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: JSON.stringify({ 
-                url: url,
-                vCodec: 'h264',
-                vQuality: '720',
-                aFormat: 'mp3',
-                filenamePattern: 'classic',
-                isAudioOnly: false
-              }),
-              signal: AbortSignal.timeout(15000)
-            });
-          }
-
-          if (response && response.ok) {
-            const data = await response.json();
-            console.log('Fallback backend response:', data);
-            return transformBackendResponse(data, url, backend.type);
-          }
-          
-        } catch (fallbackError) {
-          console.warn(`Fallback backend ${backend.url} failed:`, fallbackError);
-          continue;
-        }
+      // Check if it's a network error (CORS, connection refused, etc.)
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        console.warn('Network error detected - likely CORS or backend unavailable');
+        railwayError = new Error('Backend service is currently unavailable. This could be due to the service being down or network connectivity issues.');
       }
-
-      // If all backends fail, show demo mode with actual video info if possible
-      if (url.includes('youtube.com') || url.includes('youtu.be')) {
-        return await extractYouTubeInfo(url);
-      }
-      
-      throw new Error(`Cannot connect to video analysis service: ${railwayError instanceof Error ? railwayError.message : 'Unknown error'}`);
     }
+
+    // Try alternative backends as fallback
+    console.log('Attempting fallback backends...');
+    const fallbackEndpoints = [
+      {
+        url: 'https://api.cobalt.tools/api/json',
+        type: 'cobalt'
+      }
+    ];
+
+    for (const backend of fallbackEndpoints) {
+      try {
+        console.log(`Trying fallback backend: ${backend.url}`);
+        
+        let response;
+        if (backend.type === 'cobalt') {
+          response = await fetch(backend.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({ 
+              url: url,
+              vCodec: 'h264',
+              vQuality: '720',
+              aFormat: 'mp3',
+              filenamePattern: 'classic',
+              isAudioOnly: false
+            }),
+            signal: AbortSignal.timeout(10000)
+          });
+        }
+
+        if (response && response.ok) {
+          const data = await response.json();
+          console.log('Fallback backend response:', data);
+          return transformBackendResponse(data, url, backend.type);
+        }
+        
+      } catch (fallbackError) {
+        console.warn(`Fallback backend ${backend.url} failed:`, fallbackError);
+        continue;
+      }
+    }
+
+    // If all backends fail, provide demo mode with helpful error message
+    console.log('All backends failed, entering demo mode');
+    
+    // Try to extract basic video info for demo mode
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      try {
+        const demoInfo = await extractYouTubeInfo(url);
+        // Add error context to demo info
+        demoInfo.apiData = {
+          ...demoInfo.apiData,
+          backendError: railwayError?.message || 'Backend services unavailable',
+          demoMode: true,
+          errorDetails: 'The video download service is currently unavailable. This may be due to server maintenance or connectivity issues.'
+        };
+        return demoInfo;
+      } catch (demoError) {
+        console.error('Demo mode extraction failed:', demoError);
+      }
+    }
+    
+    // Final fallback - create basic demo info
+    return createFallbackVideoInfo(url, railwayError?.message || 'All backend services are currently unavailable');
     
   } catch (error) {
     console.error('Video analysis failed:', error);
     throw error;
   }
+};
+
+const createFallbackVideoInfo = (url: string, errorMessage: string): VideoInfo => {
+  const platform = getPlatformName(url);
+  const videoId = extractYouTubeVideoId(url) || 'unknown';
+  
+  return {
+    title: `${platform} Video`,
+    thumbnail: url.includes('youtube') ? getYouTubeThumbnail(url) : getDefaultThumbnail(),
+    duration: 'Unknown',
+    platform: platform,
+    formats: generateDemoFormats(videoId, url),
+    apiData: {
+      source: 'fallback-demo',
+      originalUrl: url,
+      demoMode: true,
+      backendError: errorMessage,
+      errorDetails: 'Unable to connect to video analysis services. Please check your internet connection and try again later.'
+    }
+  };
 };
 
 const transformRailwayResponse = (data: any, originalUrl: string): VideoInfo => {
@@ -209,7 +255,9 @@ const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
 
     // Try to get basic info using YouTube oEmbed API
     try {
-      const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`, {
+        signal: AbortSignal.timeout(5000)
+      });
       if (oembedResponse.ok) {
         const oembedData = await oembedResponse.json();
         

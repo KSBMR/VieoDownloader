@@ -29,10 +29,27 @@ function App() {
       console.log('Video analysis completed:', info);
       setVideoInfo(info);
       setAppState('ready');
+      
+      // Show a warning if we're in demo mode due to backend issues
+      if (info.apiData?.demoMode && info.apiData?.backendError) {
+        console.warn('Backend service unavailable, running in demo mode:', info.apiData.backendError);
+      }
+      
     } catch (err) {
       console.error('Video analysis failed:', err);
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      setError(errorMessage);
+      
+      // Provide more helpful error messages for common issues
+      let userFriendlyError = errorMessage;
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Backend service unavailable')) {
+        userFriendlyError = 'Unable to connect to video analysis service. This may be due to:\n\n• The backend service being temporarily unavailable\n• Network connectivity issues\n• CORS configuration problems\n\nPlease try again in a few moments, or check if the service is running properly.';
+      } else if (errorMessage.includes('Invalid URL')) {
+        userFriendlyError = 'Please enter a valid video URL from a supported platform (YouTube, Instagram, TikTok, etc.)';
+      } else if (errorMessage.includes('Platform not supported')) {
+        userFriendlyError = 'This platform is not currently supported. We support YouTube, Instagram, TikTok, Twitter, Facebook, Vimeo, and more.';
+      }
+      
+      setError(userFriendlyError);
       setAppState('error');
     }
   };
@@ -40,7 +57,9 @@ function App() {
   const handleDownload = async (format: VideoFormat) => {
     // Check if this is demo mode
     if (format.demoMode || !format.downloadUrl) {
-      setError('Demo Mode: This is a demonstration. To enable actual downloads, connect to a working video download backend service. Currently showing video information only.');
+      const demoMessage = videoInfo?.apiData?.errorDetails || 
+        'Demo Mode: This is a demonstration. To enable actual downloads, ensure the backend video download service is running and accessible. Currently showing video information only.';
+      setError(demoMessage);
       setAppState('error');
       return;
     }
