@@ -1,6 +1,6 @@
 import { VideoInfo, VideoFormat } from '../types';
 
-const RAILWAY_API_URL = 'https://vieodownloader-production.up.railway.app/download';
+const RAILWAY_API_URL = 'https://videodownloader-production.up.railway.app/download';
 
 export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   // Basic URL validation
