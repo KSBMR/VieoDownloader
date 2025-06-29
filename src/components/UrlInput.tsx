@@ -49,7 +49,7 @@ const UrlInput: React.FC<UrlInputProps> = ({ onSubmit, isAnalyzing }) => {
           {isAnalyzing ? (
             <div className="flex items-center justify-center">
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-3"></div>
-              <span>Analyzing Video... (up to 15 seconds)</span>
+              <span>Analyzing Video... (up to 30 seconds)</span>
             </div>
           ) : (
             'Get Download Links'
@@ -61,7 +61,7 @@ const UrlInput: React.FC<UrlInputProps> = ({ onSubmit, isAnalyzing }) => {
         <p>Supported platforms: YouTube, Facebook, Instagram, TikTok, Twitter, Vimeo, and more</p>
         {isAnalyzing && (
           <p className="mt-2 text-blue-600">
-            Please wait while we fetch the video information. This may take some time depending on the video source.
+            Please wait while we fetch the video information from your backend server.
           </p>
         )}
       </div>

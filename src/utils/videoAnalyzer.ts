@@ -1,10 +1,6 @@
 import { VideoInfo, VideoFormat } from '../types';
 
-// Try multiple API endpoints for better reliability
-const API_ENDPOINTS = [
-  'https://api.cobalt.tools/api/json',
-  'https://co.wuk.sh/api/json'
-];
+const RAILWAY_API_URL = 'https://vieodownloader-production.up.railway.app/download';
 
 export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   // Basic URL validation
@@ -16,132 +12,140 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     throw new Error('Platform not supported. We support YouTube, Instagram, TikTok, Twitter, and more.');
   }
 
-  // Try cobalt.tools API first (more reliable)
-  for (const apiUrl of API_ENDPOINTS) {
-    try {
-      console.log(`Trying API: ${apiUrl}`);
-      const result = await tryCobaltsAPI(url, apiUrl);
-      if (result) return result;
-    } catch (error) {
-      console.log(`API ${apiUrl} failed:`, error);
-      continue;
-    }
-  }
-
-  // If all APIs fail, return mock data for demonstration
-  console.log('All APIs failed, returning demo data');
-  return getMockVideoInfo(url);
-};
-
-const tryCobaltsAPI = async (url: string, apiUrl: string): Promise<VideoInfo | null> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  
   try {
-    const response = await fetch(apiUrl, {
+    console.log('Sending request to Railway API:', RAILWAY_API_URL);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    const response = await fetch(RAILWAY_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({
-        url: url,
-        vCodec: 'h264',
-        vQuality: '720',
-        aFormat: 'mp3',
-        filenamePattern: 'classic',
-        isAudioOnly: false
-      }),
+      body: JSON.stringify({ url }),
       signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Server error (${response.status}): ${errorText}`);
     }
 
     const data = await response.json();
-    console.log('Cobalt API response:', data);
+    console.log('Railway API response:', data);
 
-    if (data.status === 'error') {
-      throw new Error(data.text || 'API returned an error');
+    if (data.error) {
+      throw new Error(data.error);
     }
 
-    if (data.status === 'success' || data.url) {
-      return transformCobaltResponse(data, url);
+    return transformRailwayResponse(data, url);
+  } catch (error) {
+    console.error('Railway API failed:', error);
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw error;
     }
-
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
+    
+    throw new Error('Failed to analyze video. Please try again.');
   }
 };
 
-const transformCobaltResponse = (data: any, originalUrl: string): VideoInfo => {
+const transformRailwayResponse = (data: any, originalUrl: string): VideoInfo => {
   const formats: VideoFormat[] = [];
   
-  // Handle single download URL
-  if (data.url) {
+  // Handle the response structure from your Railway backend
+  if (data.formats && Array.isArray(data.formats)) {
+    data.formats.forEach((format: any) => {
+      formats.push({
+        quality: format.quality || format.height ? `${format.height}p` : 'Unknown',
+        resolution: format.resolution || (format.width && format.height ? `${format.width}x${format.height}` : 'Unknown'),
+        size: formatFileSize(format.filesize) || 'Unknown',
+        format: format.ext?.toUpperCase() || 'MP4',
+        type: format.vcodec && format.vcodec !== 'none' ? 'video' : 'audio',
+        downloadUrl: format.url,
+        formatId: format.format_id
+      });
+    });
+  } else if (data.url) {
+    // Handle single download URL
     formats.push({
-      quality: '720p',
-      resolution: '1280x720',
+      quality: 'Best Available',
+      resolution: 'Unknown',
       size: 'Unknown',
       format: 'MP4',
       type: 'video',
       downloadUrl: data.url,
-      formatId: 'cobalt_video'
+      formatId: 'single'
     });
   }
 
-  // Handle audio URL if available
-  if (data.audio) {
-    formats.push({
-      quality: 'High',
-      resolution: '320kbps',
-      size: 'Unknown',
-      format: 'MP3',
-      type: 'audio',
-      downloadUrl: data.audio,
-      formatId: 'cobalt_audio'
-    });
-  }
+  // Sort formats by quality (video first, then audio)
+  formats.sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === 'video' ? -1 : 1;
+    }
+    
+    const qualityOrder = ['2160p', '1440p', '1080p', '720p', '480p', '360p', '240p', 'High', 'Medium', 'Low'];
+    const aIndex = qualityOrder.indexOf(a.quality);
+    const bIndex = qualityOrder.indexOf(b.quality);
+    
+    if (aIndex !== -1 && bIndex !== -1) {
+      return aIndex - bIndex;
+    }
+    
+    return 0;
+  });
 
   return {
-    title: data.filename || extractTitleFromUrl(originalUrl),
-    thumbnail: data.thumb || getDefaultThumbnail(),
-    duration: 'Unknown',
+    title: data.title || extractTitleFromUrl(originalUrl),
+    thumbnail: data.thumbnail || getDefaultThumbnail(),
+    duration: formatDuration(data.duration) || 'Unknown',
     platform: getPlatformName(originalUrl),
     formats: formats,
     apiData: data
   };
 };
 
-const getMockVideoInfo = (url: string): VideoInfo => {
-  return {
-    title: "Demo Video - " + extractTitleFromUrl(url),
-    thumbnail: getDefaultThumbnail(),
-    duration: "Unknown",
-    platform: getPlatformName(url),
-    formats: [
-      {
-        quality: '720p',
-        resolution: '1280x720',
-        size: 'Unknown',
-        format: 'MP4',
-        type: 'video',
-        downloadUrl: '#demo', // Demo URL
-        formatId: 'demo_video'
-      },
-      {
-        quality: 'High',
-        resolution: '320kbps',
-        size: 'Unknown',
-        format: 'MP3',
-        type: 'audio',
-        downloadUrl: '#demo', // Demo URL
-        formatId: 'demo_audio'
-      }
-    ]
-  };
+const formatFileSize = (bytes: number | string): string => {
+  if (!bytes || bytes === 'Unknown') return 'Unknown';
+  
+  const size = typeof bytes === 'string' ? parseInt(bytes) : bytes;
+  if (isNaN(size)) return 'Unknown';
+  
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let unitIndex = 0;
+  let fileSize = size;
+  
+  while (fileSize >= 1024 && unitIndex < units.length - 1) {
+    fileSize /= 1024;
+    unitIndex++;
+  }
+  
+  return `${fileSize.toFixed(1)} ${units[unitIndex]}`;
+};
+
+const formatDuration = (seconds: number | string): string => {
+  if (!seconds) return 'Unknown';
+  
+  const duration = typeof seconds === 'string' ? parseInt(seconds) : seconds;
+  if (isNaN(duration)) return 'Unknown';
+  
+  const hours = Math.floor(duration / 3600);
+  const minutes = Math.floor((duration % 3600) / 60);
+  const secs = duration % 60;
+  
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
 };
 
 const extractTitleFromUrl = (url: string): string => {

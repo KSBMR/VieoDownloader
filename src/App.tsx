@@ -38,9 +38,8 @@ function App() {
   };
 
   const handleDownload = async (format: VideoFormat) => {
-    if (!format.downloadUrl || format.downloadUrl === '#demo') {
-      // Handle demo mode
-      setError('This is a demo. In a real implementation, the file would be downloaded from: ' + (format.downloadUrl || 'N/A'));
+    if (!format.downloadUrl) {
+      setError('Download URL not available for this format.');
       setAppState('error');
       return;
     }

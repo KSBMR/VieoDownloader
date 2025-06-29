@@ -23,10 +23,10 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
   const activeFormats = selectedTab === 'video' ? videoFormats : audioFormats;
   
   const getQualityColor = (quality: string) => {
-    if (quality.includes('1080p') || quality.includes('720p') || parseInt(quality) >= 320) {
+    if (quality.includes('1080p') || quality.includes('720p') || quality.includes('2160p') || quality.includes('1440p')) {
       return 'text-purple-600 bg-purple-50 border-purple-200';
     }
-    if (quality.includes('480p') || quality.includes('360p') || parseInt(quality) >= 192) {
+    if (quality.includes('480p') || quality.includes('360p') || quality.includes('High')) {
       return 'text-blue-600 bg-blue-50 border-blue-200';
     }
     return 'text-gray-600 bg-gray-50 border-gray-200';
