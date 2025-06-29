@@ -22,7 +22,12 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       {
         url: 'https://vieodownloader-production.up.railway.app/download',
         type: 'standard'
-      }
+      },
+      // Add your own backend URL here:
+      // {
+      //   url: 'YOUR_BACKEND_URL/download',
+      //   type: 'standard'
+      // }
     ];
 
     for (const backend of backendEndpoints) {
