@@ -13,31 +13,72 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   try {
     console.log('Analyzing video URL:', url);
     
-    // Try to call the actual backend API first
-    try {
-      const response = await fetch('https://vieodownloader-production.up.railway.app/download', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-        signal: AbortSignal.timeout(10000) // 10 second timeout
-      });
+    // Try multiple backend endpoints for better reliability
+    const backendEndpoints = [
+      'https://vieodownloader-production.up.railway.app/download',
+      'https://api.cobalt.tools/api/json',
+      'https://youtube-dl-api.herokuapp.com/api/info'
+    ];
 
-      if (!response.ok) {
-        throw new Error(`Backend error: ${response.status}`);
+    for (const endpoint of backendEndpoints) {
+      try {
+        console.log(`Trying backend: ${endpoint}`);
+        
+        let response;
+        if (endpoint.includes('cobalt.tools')) {
+          // Cobalt API format
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({ 
+              url: url,
+              vCodec: 'h264',
+              vQuality: '720',
+              aFormat: 'mp3',
+              filenamePattern: 'classic'
+            }),
+            signal: AbortSignal.timeout(15000)
+          });
+        } else {
+          // Standard format
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({ url }),
+            signal: AbortSignal.timeout(15000)
+          });
+        }
+
+        if (!response.ok) {
+          console.warn(`Backend ${endpoint} returned ${response.status}`);
+          continue;
+        }
+
+        const data = await response.json();
+        console.log('Backend response:', data);
+        
+        if (data && (data.title || data.text)) {
+          return transformBackendResponse(data, url, endpoint);
+        }
+        
+      } catch (backendError) {
+        console.warn(`Backend ${endpoint} failed:`, backendError);
+        continue;
       }
-
-      const data = await response.json();
-      console.log('Backend response:', data);
-      return transformBackendResponse(data, url);
-      
-    } catch (backendError) {
-      console.warn('Backend unavailable, using mock data:', backendError);
-      
-      // Fall back to mock implementation for development
-      return await simulateVideoAnalysis(url);
     }
+
+    // If all backends fail, try to extract basic info from YouTube URL
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      return await extractYouTubeInfo(url);
+    }
+    
+    throw new Error('Unable to analyze video. All backend services are currently unavailable.');
     
   } catch (error) {
     console.error('Video analysis failed:', error);
@@ -45,149 +86,143 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
   }
 };
 
-const simulateVideoAnalysis = async (url: string): Promise<VideoInfo> => {
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
-  
-  const platform = getPlatformName(url);
-  const mockTitle = generateMockTitle(platform);
-  
-  // Generate realistic mock formats based on platform
-  const formats = generateMockFormats(platform);
-  
-  return {
-    title: mockTitle,
-    thumbnail: getMockThumbnail(platform),
-    duration: generateMockDuration(),
-    platform: platform,
-    formats: formats,
-    apiData: {
-      mock: true,
-      originalUrl: url,
-      timestamp: new Date().toISOString()
+const extractYouTubeInfo = async (url: string): Promise<VideoInfo> => {
+  try {
+    // Extract video ID from YouTube URL
+    const videoId = extractYouTubeVideoId(url);
+    if (!videoId) {
+      throw new Error('Invalid YouTube URL');
     }
-  };
+
+    // Try to get basic info using YouTube oEmbed API (no API key required)
+    try {
+      const oembedResponse = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      if (oembedResponse.ok) {
+        const oembedData = await oembedResponse.json();
+        
+        return {
+          title: oembedData.title || 'YouTube Video',
+          thumbnail: oembedData.thumbnail_url || `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+          duration: 'Unknown',
+          platform: 'YouTube',
+          formats: generateYouTubeFormats(videoId),
+          apiData: {
+            source: 'youtube-oembed',
+            videoId: videoId,
+            originalUrl: url,
+            oembedData: oembedData
+          }
+        };
+      }
+    } catch (oembedError) {
+      console.warn('YouTube oEmbed failed:', oembedError);
+    }
+
+    // Fallback: Create basic info with video ID
+    return {
+      title: 'YouTube Video',
+      thumbnail: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+      duration: 'Unknown',
+      platform: 'YouTube',
+      formats: generateYouTubeFormats(videoId),
+      apiData: {
+        source: 'youtube-fallback',
+        videoId: videoId,
+        originalUrl: url
+      }
+    };
+
+  } catch (error) {
+    throw new Error('Failed to extract YouTube video information');
+  }
 };
 
-const generateMockTitle = (platform: string): string => {
-  const titles = {
-    'YouTube': [
-      'Amazing Tutorial: Learn Something New Today',
-      'Top 10 Tips for Better Productivity',
-      'Relaxing Music for Study and Work',
-      'How to Build Amazing Projects',
-      'The Ultimate Guide to Success'
-    ],
-    'Instagram': [
-      'Beautiful Sunset Timelapse',
-      'Behind the Scenes Content',
-      'Daily Life Moments',
-      'Creative Art Process',
-      'Travel Adventure Highlights'
-    ],
-    'TikTok': [
-      'Viral Dance Challenge',
-      'Quick Life Hack',
-      'Funny Pet Moments',
-      'DIY Project Tutorial',
-      'Trending Comedy Skit'
-    ],
-    'Twitter/X': [
-      'Breaking News Update',
-      'Interesting Thread Discussion',
-      'Live Event Coverage',
-      'Quick Announcement',
-      'Community Highlights'
-    ]
-  };
-  
-  const platformTitles = titles[platform as keyof typeof titles] || titles['YouTube'];
-  return platformTitles[Math.floor(Math.random() * platformTitles.length)];
+const extractYouTubeVideoId = (url: string): string | null => {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /youtube\.com\/watch\?.*v=([^&\n?#]+)/
+  ];
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
 };
 
-const getMockThumbnail = (platform: string): string => {
-  const thumbnails = {
-    'YouTube': 'https://images.pexels.com/photos/1144275/pexels-photo-1144275.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'Instagram': 'https://images.pexels.com/photos/1366919/pexels-photo-1366919.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'TikTok': 'https://images.pexels.com/photos/1190297/pexels-photo-1190297.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1',
-    'Twitter/X': 'https://images.pexels.com/photos/267350/pexels-photo-267350.jpeg?auto=compress&cs=tinysrgb&w=480&h=270&dpr=1'
-  };
-  
-  return thumbnails[platform as keyof typeof thumbnails] || thumbnails['YouTube'];
-};
-
-const generateMockDuration = (): string => {
-  const durations = ['0:30', '1:45', '3:22', '5:17', '8:43', '12:05', '15:30'];
-  return durations[Math.floor(Math.random() * durations.length)];
-};
-
-const generateMockFormats = (platform: string): VideoFormat[] => {
-  const baseFormats: VideoFormat[] = [
+const generateYouTubeFormats = (videoId: string): VideoFormat[] => {
+  // Generate realistic YouTube download formats
+  return [
     {
       quality: '1080p',
       resolution: '1920x1080',
-      size: '45.2 MB',
+      size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: createMockDownloadUrl('1080p', 'mp4'),
-      formatId: 'mock-1080p'
+      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      formatId: 'youtube-1080p'
     },
     {
       quality: '720p',
       resolution: '1280x720',
-      size: '28.7 MB',
+      size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: createMockDownloadUrl('720p', 'mp4'),
-      formatId: 'mock-720p'
+      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      formatId: 'youtube-720p'
     },
     {
       quality: '480p',
       resolution: '854x480',
-      size: '18.3 MB',
+      size: 'Unknown',
       format: 'MP4',
       type: 'video',
-      downloadUrl: createMockDownloadUrl('480p', 'mp4'),
-      formatId: 'mock-480p'
+      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      formatId: 'youtube-480p'
     },
     {
       quality: '128kbps',
       resolution: 'Audio Only',
-      size: '3.2 MB',
+      size: 'Unknown',
       format: 'MP3',
       type: 'audio',
-      downloadUrl: createMockDownloadUrl('audio', 'mp3'),
-      formatId: 'mock-audio'
+      downloadUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      formatId: 'youtube-audio'
     }
   ];
-
-  // Adjust formats based on platform
-  if (platform === 'TikTok' || platform === 'Instagram') {
-    // Mobile-first platforms typically have different aspect ratios
-    return baseFormats.map(format => ({
-      ...format,
-      resolution: format.type === 'video' ? 
-        format.quality === '1080p' ? '1080x1920' :
-        format.quality === '720p' ? '720x1280' :
-        '480x854' : format.resolution
-    }));
-  }
-
-  return baseFormats;
 };
 
-const createMockDownloadUrl = (quality: string, format: string): string => {
-  // Create a data URL that will trigger a download of a small text file
-  // This simulates the download functionality for development purposes
-  const content = `Mock ${quality} ${format.toUpperCase()} file\nGenerated for development testing\nTimestamp: ${new Date().toISOString()}`;
-  const blob = new Blob([content], { type: 'text/plain' });
-  return URL.createObjectURL(blob);
-};
-
-const transformBackendResponse = (backendData: any, originalUrl: string): VideoInfo => {
+const transformBackendResponse = (backendData: any, originalUrl: string, endpoint: string): VideoInfo => {
   const formats: VideoFormat[] = [];
   
-  // Handle video formats
+  // Handle Cobalt API response
+  if (endpoint.includes('cobalt.tools')) {
+    if (backendData.status === 'success' || backendData.status === 'redirect') {
+      formats.push({
+        quality: 'Best Available',
+        resolution: 'Original',
+        size: 'Unknown',
+        format: 'MP4',
+        type: 'video',
+        downloadUrl: backendData.url,
+        formatId: 'cobalt-video'
+      });
+    }
+    
+    return {
+      title: backendData.filename || extractTitleFromUrl(originalUrl),
+      thumbnail: backendData.thumbnail || getDefaultThumbnail(),
+      duration: 'Unknown',
+      platform: getPlatformName(originalUrl),
+      formats: formats,
+      apiData: { source: 'cobalt', ...backendData }
+    };
+  }
+
+  // Handle standard backend response
   if (backendData.formats) {
     backendData.formats.forEach((format: any) => {
       formats.push({
@@ -218,13 +253,31 @@ const transformBackendResponse = (backendData: any, originalUrl: string): VideoI
   }
 
   return {
-    title: backendData.title || 'Unknown Title',
+    title: backendData.title || extractTitleFromUrl(originalUrl),
     thumbnail: backendData.thumbnail || getDefaultThumbnail(),
     duration: formatDuration(backendData.duration),
     platform: getPlatformName(originalUrl),
     formats: formats,
     apiData: backendData
   };
+};
+
+const extractTitleFromUrl = (url: string): string => {
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.hostname.includes('youtube')) {
+      return 'YouTube Video';
+    }
+    if (urlObj.hostname.includes('instagram')) {
+      return 'Instagram Video';
+    }
+    if (urlObj.hostname.includes('tiktok')) {
+      return 'TikTok Video';
+    }
+    return 'Video';
+  } catch {
+    return 'Video';
+  }
 };
 
 const formatFileSize = (bytes: number): string => {
