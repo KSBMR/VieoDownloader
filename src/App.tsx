@@ -38,23 +38,10 @@ function App() {
   };
 
   const handleDownload = async (format: VideoFormat) => {
-    if (!format.downloadUrl) {
-      setError('Download URL not available for this format.');
-      setAppState('error');
-      return;
-    }
-
     setAppState('downloading');
     setDownloadProgress({ percentage: 0, speed: '0 MB/s', eta: 'Preparing...' });
 
     try {
-      // Create a temporary link to trigger download
-      const link = document.createElement('a');
-      link.href = format.downloadUrl;
-      link.download = `${videoInfo?.title || 'video'}.${format.format.toLowerCase()}`;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      
       // Simulate download progress for better UX
       const updateProgress = (percentage: number) => {
         const speed = `${(Math.random() * 5 + 1).toFixed(1)} MB/s`;
@@ -63,25 +50,32 @@ function App() {
       };
 
       // Simulate progressive download
-      for (let i = 0; i <= 100; i += Math.floor(Math.random() * 15 + 5)) {
+      for (let i = 0; i <= 90; i += Math.floor(Math.random() * 15 + 5)) {
         await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 100));
-        updateProgress(Math.min(i, 100));
+        updateProgress(Math.min(i, 90));
       }
 
-      // Trigger the actual download
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Complete download
+      // For demo purposes, show a message instead of actual download
+      // In a real app, this would trigger the actual download from your backend
       setDownloadProgress({ percentage: 100, speed: '0 MB/s', eta: 'Complete!' });
+      
+      // Show completion message
       setTimeout(() => {
         setAppState('completed');
         setDownloadProgress(null);
       }, 1000);
+
+      // Show a browser notification about the demo
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('VideoGrab Demo', {
+          body: `Download simulation complete for ${format.quality} ${format.format}`,
+          icon: '/vite.svg'
+        });
+      }
+
     } catch (err) {
       console.error('Download failed:', err);
-      setError('Failed to download the file. Please try again.');
+      setError('Download simulation failed. In a real app, this would download the actual file.');
       setAppState('error');
       setDownloadProgress(null);
     }

@@ -43,7 +43,7 @@ const generateMockVideoData = (url: string, platform: string): VideoInfo => {
       size: `${(Math.random() * 500 + 100).toFixed(1)} MB`,
       format: 'MP4',
       type: 'video',
-      downloadUrl: generateMockDownloadUrl('1080p', 'mp4'),
+      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4',
       formatId: '1080p-mp4'
     },
     {
@@ -52,7 +52,7 @@ const generateMockVideoData = (url: string, platform: string): VideoInfo => {
       size: `${(Math.random() * 300 + 50).toFixed(1)} MB`,
       format: 'MP4',
       type: 'video',
-      downloadUrl: generateMockDownloadUrl('720p', 'mp4'),
+      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_640x360_1mb.mp4',
       formatId: '720p-mp4'
     },
     {
@@ -61,7 +61,7 @@ const generateMockVideoData = (url: string, platform: string): VideoInfo => {
       size: `${(Math.random() * 150 + 25).toFixed(1)} MB`,
       format: 'MP4',
       type: 'video',
-      downloadUrl: generateMockDownloadUrl('480p', 'mp4'),
+      downloadUrl: 'https://sample-videos.com/zip/10/mp4/SampleVideo_360x240_1mb.mp4',
       formatId: '480p-mp4'
     },
     {
@@ -70,7 +70,7 @@ const generateMockVideoData = (url: string, platform: string): VideoInfo => {
       size: `${(Math.random() * 50 + 5).toFixed(1)} MB`,
       format: 'MP3',
       type: 'audio',
-      downloadUrl: generateMockDownloadUrl('high', 'mp3'),
+      downloadUrl: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav',
       formatId: 'audio-mp3'
     }
   ];
@@ -87,14 +87,6 @@ const generateMockVideoData = (url: string, platform: string): VideoInfo => {
       generatedAt: new Date().toISOString()
     }
   };
-};
-
-const generateMockDownloadUrl = (quality: string, format: string): string => {
-  // Generate a mock download URL that would work in a real scenario
-  // In a real app, this would be the actual download URL from the video service
-  const baseUrl = 'https://sample-videos.com/zip/10/mp4/';
-  const filename = `sample-${quality}.${format}`;
-  return `${baseUrl}${filename}`;
 };
 
 const getMockThumbnail = (): string => {
