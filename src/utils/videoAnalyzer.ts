@@ -22,43 +22,73 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     try {
       console.log('Calling Railway backend:', railwayBackend);
       
+      // First, test if the backend is reachable with a simple health check
+      try {
+        const healthResponse = await fetch(railwayBackend.replace('/download', '/health'), {
+          method: 'GET',
+          signal: AbortSignal.timeout(5000)
+        });
+        console.log('Health check response:', healthResponse.status);
+      } catch (healthError) {
+        console.warn('Health check failed, proceeding with main request:', healthError);
+      }
+      
       const response = await fetch(railwayBackend, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'Origin': window.location.origin,
+          'User-Agent': 'VideoGrab-WebApp/1.0'
         },
-        body: JSON.stringify({ url: url }),
-        signal: AbortSignal.timeout(15000) // Reduced timeout to 15 seconds
+        body: JSON.stringify({ 
+          url: url,
+          format: 'best',
+          quality: 'best'
+        }),
+        signal: AbortSignal.timeout(30000) // Increased timeout for video processing
       });
 
       console.log('Railway response status:', response.status);
+      console.log('Railway response headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Railway backend error:', response.status, errorText);
-        throw new Error(`Backend service returned error (${response.status})`);
+        
+        // Handle specific HTTP errors
+        if (response.status === 404) {
+          throw new Error('Backend endpoint not found - check if the service is properly deployed');
+        } else if (response.status === 500) {
+          throw new Error('Backend server error - the service may be experiencing issues');
+        } else if (response.status === 403) {
+          throw new Error('Access forbidden - CORS or authentication issue');
+        } else {
+          throw new Error(`Backend service returned error (${response.status}): ${errorText}`);
+        }
       }
 
       const data = await response.json();
       console.log('Railway backend response:', data);
       
       // Check if we got valid data
-      if (data && (data.title || data.info)) {
+      if (data && (data.title || data.info || data.formats || data.download_url)) {
         backendAvailable = true;
         return transformRailwayResponse(data, url);
       } else {
-        throw new Error('Invalid response format from backend');
+        throw new Error('Invalid response format from backend - no video data received');
       }
       
     } catch (error) {
       railwayError = error instanceof Error ? error : new Error('Railway backend failed');
       console.error('Railway backend failed:', railwayError);
       
-      // Check if it's a network error (CORS, connection refused, etc.)
+      // Provide specific error messages based on error type
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.warn('Network error detected - likely CORS or backend unavailable');
-        railwayError = new Error('Backend service is currently unavailable');
+        console.warn('Network error detected - likely CORS, network, or backend unavailable');
+        railwayError = new Error('Cannot connect to backend service. This could be due to:\n• CORS configuration issues\n• Backend service is down or sleeping\n• Network connectivity problems\n• Firewall blocking the request');
+      } else if (error instanceof Error && error.name === 'AbortError') {
+        railwayError = new Error('Request timed out - the backend service is taking too long to respond');
       }
     }
 
@@ -91,7 +121,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
               filenamePattern: 'classic',
               isAudioOnly: false
             }),
-            signal: AbortSignal.timeout(10000)
+            signal: AbortSignal.timeout(15000)
           });
         }
 
@@ -120,7 +150,17 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
           ...demoInfo.apiData,
           backendError: railwayError?.message || 'Backend services unavailable',
           demoMode: true,
-          errorDetails: 'The video download service is currently unavailable. You can view video information, but downloads are not available at this time.'
+          errorDetails: 'Backend service connection failed. Video information is shown in demo mode.',
+          troubleshooting: {
+            railwayUrl: railwayBackend,
+            errorType: railwayError?.name || 'Unknown',
+            suggestions: [
+              'Check if the Railway service is running and deployed',
+              'Verify CORS settings allow requests from this domain',
+              'Ensure the backend endpoint URL is correct',
+              'Check network connectivity and firewall settings'
+            ]
+          }
         };
         return demoInfo;
       } catch (demoError) {
@@ -128,7 +168,7 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
       }
     }
     
-    // Final fallback - create basic demo info
+    // Final fallback - create basic demo info with detailed error
     return createFallbackVideoInfo(url, railwayError?.message || 'All backend services are currently unavailable');
     
   } catch (error) {
@@ -143,8 +183,8 @@ export const analyzeVideo = async (url: string): Promise<VideoInfo> => {
     try {
       return createFallbackVideoInfo(url, error instanceof Error ? error.message : 'Unknown error occurred');
     } catch (fallbackError) {
-      // If even fallback fails, throw the original error
-      throw error;
+      // If even fallback fails, throw a user-friendly error
+      throw new Error('Unable to analyze video. Please check the URL and try again.');
     }
   }
 };
@@ -164,7 +204,16 @@ const createFallbackVideoInfo = (url: string, errorMessage: string): VideoInfo =
       originalUrl: url,
       demoMode: true,
       backendError: errorMessage,
-      errorDetails: 'The video download service is temporarily unavailable. You can view video information, but downloads are not available right now.'
+      errorDetails: 'Backend service is currently unavailable. Video information is displayed in demo mode only.',
+      troubleshooting: {
+        message: 'To enable downloads, ensure your backend service is running and accessible',
+        commonIssues: [
+          'Backend service not deployed or crashed',
+          'CORS not configured for this domain',
+          'Network connectivity issues',
+          'Incorrect backend URL'
+        ]
+      }
     }
   };
 };
@@ -247,7 +296,8 @@ const transformRailwayResponse = (data: any, originalUrl: string): VideoInfo => 
     apiData: {
       source: 'railway',
       originalData: data,
-      hasRealDownloads: formats.some(f => f.downloadUrl && !f.demoMode)
+      hasRealDownloads: formats.some(f => f.downloadUrl && !f.demoMode),
+      backendConnected: true
     }
   };
 };

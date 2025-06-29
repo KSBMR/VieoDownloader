@@ -45,8 +45,19 @@ function App() {
         userFriendlyError = 'Please enter a valid video URL from a supported platform (YouTube, Instagram, TikTok, etc.)';
       } else if (errorMessage.includes('Platform not supported')) {
         userFriendlyError = 'This platform is not currently supported. We support YouTube, Instagram, TikTok, Twitter, Facebook, Vimeo, and more.';
-      } else if (errorMessage.includes('Backend service') || errorMessage.includes('Failed to fetch')) {
-        userFriendlyError = 'The video download service is temporarily unavailable. This may be due to:\n\n• Server maintenance or updates\n• Network connectivity issues\n• High server load\n\nPlease try again in a few moments.';
+      } else if (errorMessage.includes('Backend service') || errorMessage.includes('Failed to fetch') || errorMessage.includes('Cannot connect')) {
+        userFriendlyError = `Connection to video service failed. This may be due to:
+
+• Backend service is down or sleeping (Railway services sleep after inactivity)
+• CORS configuration issues preventing browser requests
+• Network connectivity problems
+• Service deployment issues
+
+Troubleshooting steps:
+1. Wait a few minutes and try again (services may need time to wake up)
+2. Check if the Railway service is running at: https://vieodownloader-production.up.railway.app
+3. Verify the service logs for any errors
+4. Ensure CORS is configured to allow requests from this domain`;
       }
       
       setError(userFriendlyError);
